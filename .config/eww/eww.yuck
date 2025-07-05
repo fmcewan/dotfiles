@@ -1,0 +1,227 @@
+;; Poll system data
+
+(defvar menu_visible false)
+
+(defpoll time :interval "1s" "date '+%H:%M:%S'")
+(defpoll volume :interval "0.2s" "pamixer --get-volume-human | sed 's/muted//' | sed 's/\\([0-9]\\+\\)%/\\1%/'")
+(defpoll net :interval "5s" "nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d\":\" -f2")
+(defpoll song :interval "1s" "playerctl metadata --format '{{title}}' || echo ''")
+(defpoll active_workspace_id :interval "0.1s" "hyprctl activeworkspace -j | jq .id")
+(defpoll bluetooth_info :interval "2s" "~/.config/eww/scripts/get_bluetooth_status.sh")
+(defpoll battery-capacity :interval "5s" "upower -i $(upower -e | grep 'BAT0') | grep -E 'percentage' | awk '{print $2}' | sed 's/%//'")
+(defpoll battery-status :interval "2s" 'cat /sys/class/power_supply/BAT0/status || echo "Unknown"')
+
+
+(deflisten workspace "hyprland-workspaces `hyprctl monitors -j | jq -r \".[0].name\"`")
+
+;; Widgets
+(defwidget spacer [?width ?height] (box :style "${width ? `min-width: ${width}px;` : ''}${height ? `min-height: ${height}px;` : ''}"))
+
+(defwidget clock_icon [] (label :class "clock_icon" :text "󱦟"))
+(defwidget clock_time [] (label :class "clock_time" :text "${time}"))
+
+(defwidget volume_icon [] (label :class "volume_icon" :text "󰓃"))
+(defwidget volume [] (label :class "volume" :text "${volume}"))
+
+(defwidget wifi_icon [] (label :class "wifi_icon" :text " "))
+(defwidget wifi [] (label :class "wifi" :text "${net}"))
+
+(defwidget media_icon [] (label :class "media_icon" :text "󰲸"))
+(defwidget media [] 
+  (label :class "media" 
+         :limit-width 25 
+         :truncate "end" 
+         :text "${song}"))
+
+(defwidget battery_icon []
+  (label :class "battery_icon"
+         :style "transform: rotate(45deg);"
+         :text {battery-capacity == "N/A" ? "󰂑" :
+                battery-status == "Charging" ? "󰂄" :
+                battery-capacity > 90 ? "󰁹" :
+                battery-capacity > 80 ? "󰂂" :
+                battery-capacity > 70 ? "󰂁" :
+                battery-capacity > 60 ? "󰂀" :
+                battery-capacity > 50 ? "󰁿" :
+                battery-capacity > 40 ? "󰁾" :
+                battery-capacity > 30 ? "󰁽" :
+                battery-capacity > 20 ? "󰁼" :
+                battery-capacity > 10 ? "󰁻" : "󰁺"}
+  ))
+
+(defwidget workspaces []
+  (eventbox :onscroll "hyprctl dispatch workspace `echo {} | sed 's/up/+/\' | sed 's/down/-/'`1"
+    (box
+      :class "workspaces"
+      :spacing 10
+      (for i in workspace  
+        (button
+          :onclick "hyprctl dispatch workspace ${i.id}"
+          :width 20
+          :class {i.active == true ? "workspace-active" : "workspace-inactive"}
+          {i.active == true ? "" : ""})))))
+
+(defwidget power_button []
+  (button 
+    :class "power-button"
+    :width 15
+    :onclick "sh -c 'nohup wlogout >/dev/null 2>&1 &'"
+    ""))
+
+;; Widget containers
+
+(defwidget battery_container []
+  (box :class "battery_container"
+       :orientation "vertical"
+       :space-evenly false
+       :halign "center"
+       :spacing 6
+    (battery_icon)
+))
+
+(defwidget clock_container []
+  (box 
+    :class "clock_container"
+    :space-evenly false
+    :halign "center"
+    :orientation "horizontal"
+
+  (clock_icon)
+  (box :style "min-width: 5px;")
+  (clock_time)
+))
+
+(defwidget volume_container []
+  (box 
+    :class "volume_container"
+    :space-evenly false
+    :halign "center"
+    :orientation "horizontal"
+
+  (volume_icon)
+  (box :style {volume == "" ? "min-width: 0px" : "min-width: 5px"})
+  (volume)
+))
+
+(defwidget bluetooth_container []
+  ;; The eventbox makes the entire area clickable at all times.
+  (eventbox    
+    :onclick "hyprctl dispatch exec '[float;size 80% 80%;center] kitty --class bluetui-popup bluetui'"
+    (box :class "bluetooth_container" :orientation "horizontal" :space-evenly false :spacing 6
+      
+      ;; The icon is now always visible.
+      (label :class "bluetooth_icon" :text "󰂯")
+      
+      ;; This revealer now only wraps the device name, showing it upon connection.
+      (revealer :reveal {bluetooth_info.connected_device != ""}
+                :transition "slideright"
+                :duration "350ms"
+        (label :class "bluetooth_device-name"
+               :limit-width 15
+               :truncate "end"
+               :text "${bluetooth_info.connected_device}"))
+    )
+  )
+)
+
+(defwidget wifi_container []
+  (eventbox
+    :onclick "hyprctl dispatch exec '[float;size 80% 80%;center] kitty --class impala-popup impala'"
+    (box 
+      :class "wifi_container"
+      :space-evenly false
+      :halign "center"
+      :orientation "horizontal"
+
+    (wifi_icon)
+    (box :style "min-width: 5px;")
+    (wifi)
+)))
+
+(defwidget media_container []
+  (box 
+    :style "width: 20%;"
+    :class "media_container"
+    :space-evenly false
+    :halign "center"
+    :orientation "horizontal"
+  
+  (media_icon)
+  (box :style "min-width: 10px;")
+  (media)
+))
+
+;; Geometry containers
+
+(defwidget left []
+  (box 
+    :class "left_modules"
+    :space-evenly false
+    :halign "start"
+    :orientation "horizontal"
+  
+  (systray :class "systray" :spacing 5 :icon-size 19)
+  (box :style "min-width: 15px;")
+  (media_container)
+
+))
+  
+
+(defwidget center []
+  (box 
+    :class "right_modules"
+    :space-evenly false
+    :halign "center"
+    :orientation "horizontal"
+
+  (workspaces)
+))
+
+(defwidget right []
+  (box 
+    :class "right_modules"
+    :space-evenly false
+    :halign "end"
+    :orientation "horizontal"
+  
+
+  (wifi_container)
+  (box :style "min-width: 15px;")
+  (bluetooth_container)
+  (box :style "min-width: 15px;")
+  (volume_container)
+  (box :style "min-width: 15px;")
+  (clock_container)
+  (box :style "min-width: 15px;")
+  (battery_container)
+  (box :style "min-width: 15px;")
+  (power_button)
+))
+
+;; Bar container
+(defwidget bar []
+  (box 
+    :class "bar-widget"
+    :orientation "horizontal"  
+  (left)
+  (center)
+  (right)
+  ))
+  
+
+;; Bar window
+(defwindow bar
+	:geometry (geometry 
+            :x "0" 
+						:y "0"
+            :width "100%"
+						:height "3%"
+            :anchor "top center"
+            )
+	:monitor 0
+  :exclusive true 
+  :stacking "bg"
+  (box :class "bar-container"
+    :orientation "horizontal"
+    (bar)))
+
